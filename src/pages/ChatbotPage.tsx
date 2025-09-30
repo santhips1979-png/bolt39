@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   MessageCircle, Send, Bot, User, Brain, Heart, Target,
   Moon, Shield, Users, TrendingDown, Clock, Star, CheckCircle,
-  ArrowRight, Play, RotateCcw, Eye, AlertTriangle, Sparkles, Compass
+  ArrowRight, Play, RotateCcw, Eye, AlertTriangle, Sparkles, Compass, HelpCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -64,6 +64,8 @@ const ChatbotPage = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [generatedPlan, setGeneratedPlan] = useState<TherapyPlan | null>(null);
   const [showPlanSelection, setShowPlanSelection] = useState(false);
+  const [isOtherIssueFlow, setIsOtherIssueFlow] = useState(false);
+  const [otherIssueDescription, setOtherIssueDescription] = useState('');
 
   const mentalHealthIssues = [
     { id: 'anxiety-disorders', name: 'Anxiety Disorders', icon: Brain, color: 'from-blue-500 to-cyan-500', description: 'Persistent worry, fear, and anxiety symptoms' },
@@ -75,7 +77,8 @@ const ChatbotPage = () => {
     { id: 'emotional-dysregulation', name: 'Emotional Dysregulation', icon: Heart, color: 'from-pink-500 to-rose-500', description: 'Difficulty managing and controlling emotions' },
     { id: 'negative-thoughts', name: 'Negative Thought Patterns & Overthinking', icon: Brain, color: 'from-gray-500 to-slate-500', description: 'Rumination and persistent negative thinking' },
     { id: 'social-anxiety', name: 'Social Anxiety', icon: Users, color: 'from-teal-500 to-cyan-500', description: 'Fear and anxiety in social situations' },
-    { id: 'adjustment', name: 'Adjustment & Identity Issues', icon: Compass, color: 'from-green-500 to-teal-500', description: 'Life transitions and identity concerns' }
+    { id: 'adjustment', name: 'Adjustment & Identity Issues', icon: Compass, color: 'from-green-500 to-teal-500', description: 'Life transitions and identity concerns' },
+    { id: 'other', name: 'Other', icon: HelpCircle, color: 'from-gray-500 to-slate-500', description: 'Issues not listed above' }
   ];
 
   const questionnaires = {
@@ -308,6 +311,37 @@ const ChatbotPage = () => {
       
       // Future-oriented question (1)
       { id: '10', text: 'How do you envision yourself adapting and growing through this transition? What kind of person do you hope to become?', type: 'text', required: true, category: 'future-oriented' }
+    ],
+    other: [
+      // Initial question to understand the issue
+      { id: '1', text: 'Please describe the mental health concern or issue you are experiencing. What brings you here today?', type: 'text', required: true, category: 'open-ended' },
+
+      // Understanding the context
+      { id: '2', text: 'When did you first notice this issue? How long have you been experiencing it?', type: 'text', required: true, category: 'open-ended' },
+
+      // Impact assessment
+      { id: '3', text: 'How is this issue affecting your daily life, relationships, work, or other important areas?', type: 'text', required: true, category: 'open-ended' },
+
+      // Severity scaling
+      { id: '4', text: 'On a scale of 1-10, how much is this issue impacting your overall well-being? (1 = minimal impact, 10 = severe impact)', type: 'rating', min: 1, max: 10, required: true, category: 'scaling' },
+
+      // Frequency assessment
+      { id: '5', text: 'How often do you experience this issue? (1 = rarely, 10 = constantly)', type: 'rating', min: 1, max: 10, required: true, category: 'scaling' },
+
+      // Physical symptoms
+      { id: '6', text: 'Do you experience any physical symptoms related to this issue? (e.g., headaches, fatigue, sleep problems, appetite changes)', type: 'text', required: true, category: 'behavioral' },
+
+      // Emotional impact
+      { id: '7', text: 'What emotions do you typically feel when this issue occurs? Describe your emotional experience.', type: 'text', required: true, category: 'open-ended' },
+
+      // Coping mechanisms
+      { id: '8', text: 'What have you tried so far to manage or cope with this issue? What has helped or not helped?', type: 'text', required: true, category: 'behavioral' },
+
+      // Reflective question
+      { id: '9', text: 'What do you think might be contributing to or triggering this issue? Are there specific situations or patterns you have noticed?', type: 'text', required: true, category: 'reflective' },
+
+      // Future-oriented question
+      { id: '10', text: 'What would improvement look like for you? What specific goals do you hope to achieve through therapy?', type: 'text', required: true, category: 'future-oriented' }
     ]
   };
 
@@ -357,16 +391,23 @@ const ChatbotPage = () => {
   const startAssessment = (issueId: string) => {
     const issue = mentalHealthIssues.find(i => i.id === issueId);
     const questions = questionnaires[issueId as keyof typeof questionnaires] || [];
-    
+
     // Clear previous assessment state
     setCurrentAssessment(null);
     setCurrentQuestionIndex(0);
     setGeneratedPlan(null);
     setShowPlanSelection(false);
+    setIsOtherIssueFlow(issueId === 'other');
+    setOtherIssueDescription('');
 
     // Add initial bot messages to chat history
     addMessage(`I'd like to start an assessment for ${issue?.name}. This will help me understand your specific situation better.`, 'user');
-    simulateTyping(`Great! I'll ask you some questions about ${issue?.name.toLowerCase()} to create the best therapy plan for you. Let's begin:`);
+
+    if (issueId === 'other') {
+      simulateTyping(`I understand you're dealing with something that's not on the list. That's okay - everyone's mental health journey is unique. I'll ask you some questions to better understand your situation and create a personalized therapy plan for you. Let's begin:`);
+    } else {
+      simulateTyping(`Great! I'll ask you some questions about ${issue?.name.toLowerCase()} to create the best therapy plan for you. Let's begin:`);
+    }
 
     setCurrentAssessment({
       issue: issue?.name || 'Unknown Issue',
@@ -427,21 +468,21 @@ const ChatbotPage = () => {
     // Analyze responses to determine severity and recommendations
     const responses = assessment.responses;
     const ratingQuestions = assessment.questions.filter(q => q.type === 'rating');
-    const avgRating = ratingQuestions.length > 0 
+    const avgRating = ratingQuestions.length > 0
       ? ratingQuestions.reduce((sum, q) => sum + (parseInt(responses[q.id]) || 5), 0) / ratingQuestions.length
       : 5;
-    
+
     let severity: 'mild' | 'moderate' | 'severe' = 'moderate';
     let planDuration = 15;
-    
+
     // Analyze binary responses for additional severity indicators
     const binaryQuestions = assessment.questions.filter(q => q.type === 'binary');
     const yesResponses = binaryQuestions.filter(q => responses[q.id] === 'Yes').length;
     const binaryScore = binaryQuestions.length > 0 ? (yesResponses / binaryQuestions.length) * 10 : 5;
-    
+
     // Combine rating and binary scores for severity assessment
     const combinedScore = (avgRating + binaryScore) / 2;
-    
+
     if (combinedScore <= 4) {
       severity = 'mild';
       planDuration = 10;
@@ -453,8 +494,14 @@ const ChatbotPage = () => {
       planDuration = 14;
     }
 
+    // For "Other" issues, store the description from the first question
+    if (isOtherIssueFlow && responses['1']) {
+      setOtherIssueDescription(responses['1']);
+    }
+
     // Generate recommendations based on issue type
-    const recommendations = getRecommendationsForIssue(assessment.issue.toLowerCase(), severity);
+    const issueKey = isOtherIssueFlow ? 'custom' : assessment.issue.toLowerCase();
+    const recommendations = getRecommendationsForIssue(issueKey, severity, isOtherIssueFlow ? responses : undefined);
 
     const plan: TherapyPlan = {
       id: Date.now().toString(),
@@ -463,41 +510,116 @@ const ChatbotPage = () => {
       planDuration,
       recommendations,
       startDate: new Date().toISOString(),
-      description: `A ${planDuration}-day personalized therapy plan for ${assessment.issue.toLowerCase()}`
+      description: `A ${planDuration}-day personalized therapy plan for ${isOtherIssueFlow ? 'your unique needs' : assessment.issue.toLowerCase()}`
     };
 
     setGeneratedPlan(plan); // Set plan for modal
     setShowPlanSelection(true);
-    simulateTyping(`Based on your comprehensive assessment, I've created a personalized ${planDuration}-day therapy plan for ${assessment.issue.toLowerCase()}. Your responses indicate ${severity} severity, and this plan includes ${recommendations.length} evidence-based therapies tailored to your specific needs and goals.`);
+
+    const issueDescription = isOtherIssueFlow ? 'your unique situation' : assessment.issue.toLowerCase();
+    simulateTyping(`Based on your comprehensive assessment, I've created a personalized ${planDuration}-day therapy plan for ${issueDescription}. Your responses indicate ${severity} severity, and this plan includes ${recommendations.length} evidence-based therapies tailored to your specific needs and goals.`);
   };
 
-  const getRecommendationsForIssue = (issue: string, severity: string): TherapyRecommendation[] => {
+  const analyzeCustomIssueAndSelectTherapies = (responses: Record<string, any>, severity: string): string[] => {
+    // Analyze the responses to intelligently select appropriate therapies
+    const description = (responses['1'] || '').toLowerCase();
+    const emotionalDescription = (responses['7'] || '').toLowerCase();
+    const copingDescription = (responses['8'] || '').toLowerCase();
+
+    const selectedTherapies: string[] = [];
+
+    // Check for anxiety-related keywords
+    if (description.includes('anxious') || description.includes('worry') || description.includes('panic') ||
+        emotionalDescription.includes('anxious') || emotionalDescription.includes('fear')) {
+      selectedTherapies.push('mindfulness', 'cbt');
+    }
+
+    // Check for depression-related keywords
+    if (description.includes('depress') || description.includes('sad') || description.includes('hopeless') ||
+        emotionalDescription.includes('sad') || emotionalDescription.includes('empty')) {
+      selectedTherapies.push('gratitude', 'cbt');
+    }
+
+    // Check for stress-related keywords
+    if (description.includes('stress') || description.includes('overwhelm') || description.includes('burnout') ||
+        emotionalDescription.includes('stressed') || emotionalDescription.includes('overwhelm')) {
+      selectedTherapies.push('stress', 'mindfulness');
+    }
+
+    // Check for trauma-related keywords
+    if (description.includes('trauma') || description.includes('ptsd') || description.includes('flashback')) {
+      selectedTherapies.push('video', 'art');
+    }
+
+    // Check for sleep-related keywords
+    if (description.includes('sleep') || description.includes('insomnia') || description.includes('tired')) {
+      selectedTherapies.push('music', 'mindfulness');
+    }
+
+    // Check for self-esteem keywords
+    if (description.includes('confidence') || description.includes('self-esteem') || description.includes('worth')) {
+      selectedTherapies.push('gratitude', 'act');
+    }
+
+    // Check for thought-related keywords
+    if (description.includes('overthink') || description.includes('ruminate') || description.includes('negative thoughts')) {
+      selectedTherapies.push('cbt', 'mindfulness');
+    }
+
+    // Remove duplicates and ensure we have at least 3-4 therapies
+    const uniqueTherapies = Array.from(new Set(selectedTherapies));
+
+    // Add default therapies if we don't have enough
+    const defaultTherapies = ['cbt', 'mindfulness', 'video', 'stress'];
+    while (uniqueTherapies.length < 4) {
+      const nextTherapy = defaultTherapies.find(t => !uniqueTherapies.includes(t));
+      if (nextTherapy) {
+        uniqueTherapies.push(nextTherapy);
+      } else {
+        break;
+      }
+    }
+
+    return uniqueTherapies.slice(0, 4);
+  };
+
+  const getRecommendationsForIssue = (issue: string, severity: string, responses?: Record<string, any>): TherapyRecommendation[] => {
     const baseRecommendations: Record<string, string[]> = {
       'anxiety disorders': ['cbt', 'mindfulness', 'exposure', 'music'],
       depression: ['cbt', 'gratitude', 'video', 'act'],
+      'depression & low mood': ['cbt', 'gratitude', 'video', 'act'],
       'stress & burnout': ['stress', 'mindfulness', 'music', 'art'],
       'insomnia & sleep problems': ['mindfulness', 'music', 'video', 'stress'],
       'trauma & ptsd': ['video', 'mindfulness', 'art', 'act'],
       'low self-esteem & self-doubt': ['gratitude', 'cbt', 'video', 'act'],
       'emotional dysregulation': ['mindfulness', 'cbt', 'art', 'video'],
       'negative thought patterns & overthinking': ['cbt', 'mindfulness', 'video', 'gratitude'],
+      'negative thought patterns': ['cbt', 'mindfulness', 'video', 'gratitude'],
       'social anxiety': ['exposure', 'cbt', 'video', 'mindfulness'],
-      'adjustment & identity issues': ['video', 'act', 'gratitude', 'art']
+      'adjustment & identity issues': ['video', 'act', 'gratitude', 'art'],
+      'custom': ['cbt', 'mindfulness', 'video', 'stress']
     };
 
-    const moduleIds = baseRecommendations[issue] || ['cbt', 'mindfulness', 'video'];
-    
+    // For custom issues, intelligently select therapies based on responses
+    let moduleIds: string[];
+    if (issue === 'custom' && responses) {
+      moduleIds = analyzeCustomIssueAndSelectTherapies(responses, severity);
+    } else {
+      moduleIds = baseRecommendations[issue] || ['cbt', 'mindfulness', 'video', 'stress'];
+    }
+
     return moduleIds.map((moduleId, index) => {
       const module = therapyModules[moduleId as keyof typeof therapyModules];
+      const issueDisplay = issue === 'custom' ? 'your needs' : issue;
       return {
         moduleId,
         title: module.title,
-        description: `Evidence-based ${module.title.toLowerCase()} for ${issue}`,
+        description: `Evidence-based ${module.title.toLowerCase()} for ${issueDisplay}`,
         priority: index + 1,
         icon: module.icon,
         color: module.color,
         estimatedDuration: '15-30 min',
-        benefits: [`Reduces ${issue}`, 'Improves coping skills', 'Builds resilience']
+        benefits: [`Addresses your concerns`, 'Improves coping skills', 'Builds resilience']
       };
     });
   };

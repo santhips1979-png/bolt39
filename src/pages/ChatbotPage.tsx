@@ -66,9 +66,13 @@ const ChatbotPage = () => {
   const [showPlanSelection, setShowPlanSelection] = useState(false);
   const [isOtherIssueFlow, setIsOtherIssueFlow] = useState(false);
   const [otherIssueDescription, setOtherIssueDescription] = useState('');
-  const [otherIssueResponses, setOtherIssueResponses] = useState<Record<string, any>>({});
-  const [currentOtherQuestion, setCurrentOtherQuestion] = useState(0);
-  const [waitingForOtherResponse, setWaitingForOtherResponse] = useState(false);
+  const [chatbotAssessment, setChatbotAssessment] = useState<{
+    issue: string;
+    questions: Question[];
+    responses: Record<string, any>;
+    currentIndex: number;
+  } | null>(null);
+  const [waitingForResponse, setWaitingForResponse] = useState(false);
 
   const mentalHealthIssues = [
     { id: 'anxiety-disorders', name: 'Anxiety Disorders', icon: Brain, color: 'from-blue-500 to-cyan-500', description: 'Persistent worry, fear, and anxiety symptoms' },
@@ -391,29 +395,39 @@ const ChatbotPage = () => {
     addMessage(content, type);
   };
 
-  const askOtherIssueQuestion = async (questionIndex: number, questions: Question[]) => {
+  const askChatbotQuestion = async (questionIndex: number, assessment: { issue: string; questions: Question[]; responses: Record<string, any> }) => {
+    const { questions, issue } = assessment;
+
     if (questionIndex >= questions.length) {
       // All questions answered, generate plan
-      const assessment: Assessment = {
-        issue: 'Other',
+      const finalAssessment: Assessment = {
+        issue,
         questions,
-        responses: otherIssueResponses
+        responses: assessment.responses
       };
       await simulateTyping('Thank you for sharing all that information with me. Let me analyze your responses and create a personalized therapy plan for you...');
       setTimeout(() => {
-        generateTherapyPlan(assessment);
+        generateTherapyPlan(finalAssessment);
+        setChatbotAssessment(null);
+        setWaitingForResponse(false);
       }, 2000);
       return;
     }
 
     const question = questions[questionIndex];
-    setCurrentOtherQuestion(questionIndex);
-    setWaitingForOtherResponse(true);
+    setWaitingForResponse(true);
 
     // Ask the question in chat
     const questionNumber = questionIndex + 1;
     const totalQuestions = questions.length;
-    const questionText = `**Question ${questionNumber} of ${totalQuestions}**\n\n${question.text}`;
+
+    // Add category badge and question
+    let questionText = `Question ${questionNumber} of ${totalQuestions} - ${question.category?.replace('-', ' ') || 'question'}\n\n${question.text}`;
+
+    // Add hints for rating questions
+    if (question.type === 'rating') {
+      questionText += `\n\n(Please respond with a number from ${question.min || 1} to ${question.max || 10})`;
+    }
 
     await simulateTyping(questionText);
   };
@@ -429,27 +443,33 @@ const ChatbotPage = () => {
     setShowPlanSelection(false);
     setIsOtherIssueFlow(issueId === 'other');
     setOtherIssueDescription('');
-    setOtherIssueResponses({});
-    setCurrentOtherQuestion(0);
-    setWaitingForOtherResponse(false);
+    setWaitingForResponse(false);
 
     // Add initial bot messages to chat history
     addMessage(`I'd like to start an assessment for ${issue?.name}. This will help me understand your specific situation better.`, 'user');
 
+    // Initialize chatbot assessment for ALL issues
+    const initialAssessment = {
+      issue: issue?.name || 'Unknown Issue',
+      questions,
+      responses: {},
+      currentIndex: 0
+    };
+
+    setChatbotAssessment(initialAssessment);
+
+    // Use conversational flow for all assessments
     if (issueId === 'other') {
-      // For "Other" issues, use conversational flow instead of modal
       simulateTyping(`I understand you're dealing with something that's not on the list. That's okay - everyone's mental health journey is unique. I'll ask you some questions to better understand your situation and create a personalized therapy plan for you. Let's begin:`).then(() => {
-        // Start asking the first question
         setTimeout(() => {
-          askOtherIssueQuestion(0, questions);
+          askChatbotQuestion(0, initialAssessment);
         }, 1500);
       });
     } else {
-      simulateTyping(`Great! I'll ask you some questions about ${issue?.name.toLowerCase()} to create the best therapy plan for you. Let's begin:`);
-      setCurrentAssessment({
-        issue: issue?.name || 'Unknown Issue',
-        questions,
-        responses: {}
+      simulateTyping(`Great! I'll ask you some questions about ${issue?.name.toLowerCase()} to create the best therapy plan for you. Let's begin:`).then(() => {
+        setTimeout(() => {
+          askChatbotQuestion(0, initialAssessment);
+        }, 1500);
       });
     }
   };
@@ -690,10 +710,9 @@ const ChatbotPage = () => {
     addMessage(inputMessage, 'user');
     setInputMessage('');
 
-    // Handle "Other" issue flow responses
-    if (waitingForOtherResponse && isOtherIssueFlow) {
-      const questions = questionnaires['other'];
-      const currentQuestion = questions[currentOtherQuestion];
+    // Handle chatbot assessment flow responses
+    if (waitingForResponse && chatbotAssessment) {
+      const currentQuestion = chatbotAssessment.questions[chatbotAssessment.currentIndex];
 
       // Validate response for rating questions
       if (currentQuestion.type === 'rating') {
@@ -705,17 +724,21 @@ const ChatbotPage = () => {
       }
 
       // Store the response
-      const updatedResponses = {
-        ...otherIssueResponses,
-        [currentQuestion.id]: userResponse
+      const updatedAssessment = {
+        ...chatbotAssessment,
+        responses: {
+          ...chatbotAssessment.responses,
+          [currentQuestion.id]: userResponse
+        },
+        currentIndex: chatbotAssessment.currentIndex + 1
       };
-      setOtherIssueResponses(updatedResponses);
-      setWaitingForOtherResponse(false);
+
+      setChatbotAssessment(updatedAssessment);
+      setWaitingForResponse(false);
 
       // Move to next question
-      const nextQuestionIndex = currentOtherQuestion + 1;
       setTimeout(() => {
-        askOtherIssueQuestion(nextQuestionIndex, questions);
+        askChatbotQuestion(updatedAssessment.currentIndex, updatedAssessment);
       }, 1000);
       return;
     }
@@ -723,7 +746,7 @@ const ChatbotPage = () => {
     // Simple response logic
     if (inputMessage.toLowerCase().includes('help') || inputMessage.toLowerCase().includes('start')) {
       simulateTyping('I can help you with various mental health concerns. Would you like to start an assessment to get personalized therapy recommendations?');
-    } else if (!currentAssessment && !showPlanSelection && !waitingForOtherResponse) {
+    } else if (!currentAssessment && !showPlanSelection && !waitingForResponse) {
       simulateTyping('I understand. Feel free to ask me anything about mental health or start an assessment when you\'re ready.');
     }
   };
@@ -838,7 +861,7 @@ const ChatbotPage = () => {
           )}
 
           {/* Issue Selection */}
-          {!currentAssessment && !showPlanSelection && !waitingForOtherResponse && (
+          {!currentAssessment && !showPlanSelection && !waitingForResponse && !chatbotAssessment && (
             <div className="flex justify-center px-4">
               <motion.div
                 initial={{ opacity: 0, y: 30 }}
@@ -877,8 +900,8 @@ const ChatbotPage = () => {
             </div>
           )}
 
-          {/* Assessment Questions */}
-          {currentAssessment && currentQuestion && (
+          {/* Assessment Questions - REMOVED - Now using chat interface */}
+          {false && currentAssessment && currentQuestion && (
             <div className="px-4">
               <motion.div
                 initial={{ opacity: 0, y: 30 }}
@@ -1157,11 +1180,11 @@ const ChatbotPage = () => {
         <div className={`p-4 border-t ${
           theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
         }`}>
-          {waitingForOtherResponse && (
+          {waitingForResponse && chatbotAssessment && (
             <div className={`mb-2 text-sm ${
               theme === 'dark' ? 'text-purple-400' : 'text-purple-600'
             }`}>
-              Please type your response and press Enter or click Send
+              Question {chatbotAssessment.currentIndex} of {chatbotAssessment.questions.length} - Please type your response and press Enter or click Send
             </div>
           )}
           <div className="flex items-center space-x-3">
@@ -1171,20 +1194,19 @@ const ChatbotPage = () => {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder={waitingForOtherResponse ? "Type your answer here..." : "Type your message here..."}
-                disabled={currentAssessment !== null && !waitingForOtherResponse}
+                placeholder={waitingForResponse ? "Type your answer here..." : "Type your message here..."}
                 className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 ${
                   theme === 'dark'
                     ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
                     : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                } ${currentAssessment !== null && !waitingForOtherResponse ? 'opacity-50 cursor-not-allowed' : ''}`}
+                }`}
               />
             </div>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={handleSendMessage}
-              disabled={!inputMessage.trim() || (currentAssessment !== null && !waitingForOtherResponse)}
+              disabled={!inputMessage.trim()}
               className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl hover:from-purple-600 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
             >
               <Send className="w-5 h-5" />
